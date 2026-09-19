@@ -1,0 +1,15 @@
+# Core
+numpy>=1.26
+networkx>=3.2
+scikit-learn>=1.5
+
+# PyTorch
+torch>=2.4
+torchvision>=0.19
+torchaudio>=2.4
+
+# Graph learning / COIL-DEL
+torch-geometric>=2.6
+
+# Utilities
+tqdm>=4.66
