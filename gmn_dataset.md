@@ -1,36 +1,69 @@
-# GMN Synthetic GED and COIL-DEL Dataset Preparation
+# Graph Matching Networks (GMN) Dataset Preparation
 
-This README explains how to generate and use the datasets for the
-**Graph Matching Networks for Learning the Similarity of Graph Structured Objects**
-baseline experiments.
+This repository contains dataset preparation scripts for reproducing the experiments from:
 
-## 1. Requirements
+> **Graph Matching Networks for Learning the Similarity of Graph Structured Objects**
 
-Use Python 3.10+.
+The repository supports three datasets used for baseline reproduction and extension experiments:
 
-Install dependencies:
+| Dataset | Task | Graph Type |
+|----------|------|------------|
+| Synthetic GED | Graph similarity / matching | Random graphs |
+| COIL-DEL | Graph similarity / classification | Object graphs |
+| FFmpeg CFG | Binary function similarity | Control Flow Graphs (CFGs) |
+
+---
+
+# 1. Installation
+
+## System Requirements
+
+Ubuntu/Linux is recommended.
+
+Python:
+
+```bash
+Python >= 3.10
+```
+
+## Install Python Dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-## 2. Generate the datasets
+## Additional Dependencies for FFmpeg CFG Dataset
 
-Run:
+```bash
+sudo apt update
+
+sudo apt install \
+    build-essential \
+    clang \
+    make \
+    pkg-config \
+    yasm \
+    nasm
+```
+
+---
+
+# 2. Dataset Generation
+
+## Synthetic GED + COIL-DEL
+
+Generate both datasets using:
 
 ```bash
 python prepare_gmn_data.py
 ```
 
-The script creates:
+Output:
 
 ```text
 data/
 ├── ged/
 │   ├── n20_p02/
-│   │   ├── pairs.pt
-│   │   ├── triplets.pt
-│   │   └── metadata.json
 │   ├── n20_p05/
 │   ├── n50_p02/
 │   └── n50_p05/
@@ -44,29 +77,230 @@ data/
 
 ---
 
-# 3. Synthetic GED experiments
+## FFmpeg CFG Dataset
 
-The synthetic experiments use the four settings:
+Download FFmpeg:
 
-```text
-(n=20, p=0.2)
-(n=20, p=0.5)
-(n=50, p=0.2)
-(n=50, p=0.5)
+```bash
+wget https://ffmpeg.org/releases/ffmpeg-6.1.tar.xz
+tar -xf ffmpeg-6.1.tar.xz
 ```
 
-For each setting:
+Generate CFG dataset:
 
-- Positive pair: graphs differ by 1 edge substitution.
-- Negative pair: graphs differ by 2 edge substitutions.
-- 1,000 fixed evaluation pairs are generated.
-- 1,000 fixed evaluation triplets are generated.
+```bash
+python prepare_ffmpeg_cfg.py all \
+    --source-dir ffmpeg-6.1 \
+    --out data/ffmpeg \
+    --gcc gcc \
+    --clang clang \
+    --jobs 8
+```
 
-## Important: training data
+Output:
 
-Do **not** save millions of training graphs to disk.
+```text
+data/ffmpeg/
+├── binaries/
+│   ├── gcc_O0/
+│   ├── gcc_O1/
+│   ├── gcc_O2/
+│   ├── gcc_O3/
+│   ├── clang_O0/
+│   ├── clang_O1/
+│   ├── clang_O2/
+│   └── clang_O3/
+│
+├── ffmpeg_cfg.sqlite
+├── splits.json
+├── build_metadata.json
+└── extraction_counts.json
+```
 
-Generate training samples on-the-fly:
+---
+
+# 3. Dataset Summary
+
+## A. Synthetic GED Dataset
+
+Purpose:
+
+```text
+Graph similarity benchmark
+```
+
+Configurations:
+
+```text
+n=20, p=0.2
+n=20, p=0.5
+n=50, p=0.2
+n=50, p=0.5
+```
+
+Positive Pair:
+
+```text
+1 edge substitution
+```
+
+Negative Pair:
+
+```text
+2 edge substitutions
+```
+
+Evaluation Data:
+
+```text
+1000 fixed pairs
+1000 fixed triplets
+```
+
+Training Data:
+
+```text
+Generated on-the-fly
+```
+
+Do not store training pairs on disk.
+
+---
+
+## B. COIL-DEL Dataset
+
+Purpose:
+
+```text
+Graph similarity benchmark on real object graphs
+```
+
+Statistics:
+
+```text
+100 classes
+3900 graphs
+```
+
+Split:
+
+```text
+Train      2400
+Validation  500
+Test       1000
+```
+
+Class-wise:
+
+```text
+24 train graphs/class
+5 validation graphs/class
+10 test graphs/class
+```
+
+Split file:
+
+```text
+data/coil_del/splits.pt
+```
+
+Positive Pair:
+
+```text
+Same class
+```
+
+Negative Pair:
+
+```text
+Different class
+```
+
+Training pairs should be sampled dynamically during training.
+
+---
+
+## C. FFmpeg CFG Dataset
+
+Purpose:
+
+```text
+Binary function similarity
+```
+
+Source Project:
+
+```text
+FFmpeg 6.1
+```
+
+Compilation Variants:
+
+```text
+GCC   : O0 O1 O2 O3
+Clang : O0 O1 O2 O3
+```
+
+Maximum Variants per Function:
+
+```text
+8
+```
+
+Generated Dataset:
+
+```text
+Function-level CFGs
+```
+
+Each CFG stores:
+
+```text
+Function name
+Compiler
+Optimization level
+Entry address
+Basic blocks
+CFG edges
+Assembly instructions
+```
+
+Train / Validation / Test Split:
+
+```text
+80% / 10% / 10%
+```
+
+Split is performed by:
+
+```text
+Function identity
+```
+
+meaning all variants of the same function remain in the same split.
+
+Default filtering:
+
+```bash
+--min-variants 2
+```
+
+Stricter benchmark:
+
+```bash
+python prepare_ffmpeg_cfg.py split \
+    --out data/ffmpeg \
+    --min-variants 8 \
+    --seed 42
+```
+
+---
+
+# 4. Training Protocol
+
+## Synthetic GED
+
+Create training samples dynamically:
 
 ```python
 from prepare_gmn_data import GEDGenerator
@@ -79,30 +313,75 @@ generator = GEDGenerator(
     seed=42
 )
 
-# Pair training sample
 g1, g2, label = generator.sample_pair()
-
-# Negative pair
-g1, g2, label = generator.sample_negative_pair()
-
-# Triplet training sample
 anchor, positive, negative = generator.sample_triplet()
 ```
 
-Create fresh samples for every training batch.
-
-For the paper-style training budget, use:
+Recommended training budget:
 
 ```text
 batch_size = 20
-training_steps = 50,000
+training_steps = 50000
 ```
-
-This gives 1,000,000 sampled training examples without storing them.
 
 ---
 
-# 4. Loading fixed GED evaluation data
+## COIL-DEL
+
+Positive:
+
+```text
+same class
+```
+
+Negative:
+
+```text
+different class
+```
+
+Generate training pairs online.
+
+Keep validation/test graphs fixed.
+
+---
+
+## FFmpeg CFG
+
+Positive Pair:
+
+```text
+same function
+different compiler/optimization level
+```
+
+Examples:
+
+```text
+avcodec_open2 (gcc O0)
+vs
+avcodec_open2 (clang O3)
+```
+
+Negative Pair:
+
+```text
+different functions
+```
+
+Examples:
+
+```text
+avcodec_open2
+vs
+avformat_open_input
+```
+
+---
+
+# 5. Loading Evaluation Data
+
+## GED
 
 ```python
 import torch
@@ -111,7 +390,7 @@ pairs = torch.load("data/ged/n20_p02/pairs.pt")
 triplets = torch.load("data/ged/n20_p02/triplets.pt")
 ```
 
-Each pair has:
+Pair format:
 
 ```text
 (graph1, graph2, label)
@@ -120,47 +399,19 @@ Each pair has:
 where:
 
 ```text
-label = 1 -> positive
-label = 0 -> negative
+label = 1 → positive
+label = 0 → negative
 ```
 
-Each triplet contains:
+Triplet format:
 
 ```text
 (anchor, positive, negative)
 ```
 
-Use these fixed files for validation/test evaluation so results are comparable across runs.
-
 ---
 
-# 5. COIL-DEL experiments
-
-The script downloads COIL-DEL through PyTorch Geometric.
-
-The split is class-balanced:
-
-```text
-Train:  2,400 graphs
-Validation: 500 graphs
-Test:   1,000 graphs
-```
-
-That is:
-
-```text
-24 train graphs/class
-5 validation graphs/class
-10 test graphs/class
-```
-
-The exact split is saved in:
-
-```text
-data/coil_del/splits.pt
-```
-
-Load it using:
+## COIL-DEL
 
 ```python
 import torch
@@ -172,50 +423,37 @@ val_idx = splits["val"]
 test_idx = splits["test"]
 ```
 
-## Positive and negative pairs
+---
 
-For COIL-DEL:
+## FFmpeg
 
-```text
-same class     -> positive pair
-different class -> negative pair
+```python
+import sqlite3
+
+conn = sqlite3.connect("data/ffmpeg/ffmpeg_cfg.sqlite")
 ```
 
-Do not precompute all possible graph pairs.
-
-Instead, sample pairs during training:
-
-```text
-training batch
-    |
-    +-- choose graph A
-    |
-    +-- choose another graph from same class
-          -> positive
-
-or
-
-    +-- choose graph A
-    |
-    +-- choose graph from another class
-          -> negative
-```
-
-Keep validation/test graph identities fixed and use a fixed random seed for reproducibility.
+Use `splits.json` for train/validation/test functions.
 
 ---
 
-# 6. Converting graphs to GMN input
+# 6. GMN Input Format
 
-The GMN implementation expects graph structure plus node features.
+The GMN implementation expects:
 
-For the structure-only baseline, use constant node features:
+```text
+Node Features
+Adjacency Structure
+Number of Nodes
+```
+
+Structure-only baseline:
 
 ```python
 x = torch.ones(num_nodes, 1)
 ```
 
-For each graph maintain:
+Each graph should provide:
 
 ```text
 node_features
@@ -223,92 +461,23 @@ adjacency_matrix
 num_nodes
 ```
 
-A GMN pair therefore looks like:
+For FFmpeg CFG:
 
 ```text
-Graph 1:
-    X1
-    A1
-    n1
+Option 1:
+Use constant node features
+(structure-only baseline)
 
-Graph 2:
-    X2
-    A2
-    n2
+Option 2:
+Use assembly instructions
+(node attributes)
 ```
-
-The exact tensor layout should be adapted to the
-`GraphMatchingNetworks-PyTorch` repository's model interface.
 
 ---
 
-# 7. Recommended experiment order
+# 7. Reproducibility
 
-Run the experiments in this order:
-
-## Experiment 1 — Synthetic baseline
-
-Run all four:
-
-```text
-n20_p02
-n20_p05
-n50_p02
-n50_p05
-```
-
-Record:
-
-```text
-Pair AUC
-Triplet Accuracy
-Training loss
-Validation loss
-Training time
-Inference time
-```
-
-## Experiment 2 — COIL-DEL baseline
-
-Train on:
-
-```text
-2,400 train graphs
-```
-
-Tune/check performance on:
-
-```text
-500 validation graphs
-```
-
-Report final performance on:
-
-```text
-1,000 test graphs
-```
-
-## Experiment 3 — Freeze the baseline
-
-Do not modify GMN until the baseline results and preprocessing are fixed.
-
-Then use the same:
-
-```text
-dataset
-splits
-training budget
-evaluation code
-random seeds
-```
-
-for every extension.
-
----
-
-# 8. Reproducibility
-
-Use fixed seeds for evaluation:
+Use fixed random seeds:
 
 ```python
 import random
@@ -322,49 +491,149 @@ np.random.seed(seed)
 torch.manual_seed(seed)
 ```
 
-For each extension, keep the dataset and test sets unchanged.
+Keep the following unchanged across all extensions:
 
-Only change the component being studied.
+```text
+Dataset
+Splits
+Evaluation sets
+Training budget
+Random seeds
+```
+
+Only modify the component being studied.
 
 Example:
 
 ```text
 Baseline:
-GMN + original cross-graph attention
+GMN + Original Cross-Graph Attention
 
 Extension:
-GMN + Sinkhorn matching
+GMN + Sinkhorn Matching
 ```
-
-Everything else should remain identical.
 
 ---
 
-# 9. Suggested project structure
+# 8. Recommended Workflow
+
+Step 1:
+
+```text
+Reproduce Synthetic GED baseline
+```
+
+Step 2:
+
+```text
+Reproduce COIL-DEL baseline
+```
+
+Step 3:
+
+```text
+Reproduce FFmpeg CFG baseline
+```
+
+Step 4:
+
+```text
+Freeze preprocessing, splits, and evaluation code
+```
+
+Step 5:
+
+```text
+Implement extension
+```
+
+Step 6:
+
+```text
+Compare against baseline
+```
+
+Recommended extensions:
+
+```text
+Multi-head Cross-Graph Attention
+Sinkhorn Matching
+Attention Pooling
+Alternative Metric Learning Losses
+Scalability Analysis
+Interpretability Analysis
+```
+
+---
+
+# 9. Notes for FFmpeg CFG Extraction
+
+CFG extraction is significantly slower than GED or COIL-DEL generation.
+
+Recommendations:
+
+1. Use FFmpeg 6.1.
+
+2. Enable progress bars in CFGFast:
+
+```python
+cfg = project.analyses.CFGFast(
+    normalize=True,
+    show_progressbar=True
+)
+```
+
+3. Do not use:
+
+```python
+force_complete_scan=True
+```
+
+unless necessary.
+
+4. Extraction of one FFmpeg binary may take:
+
+```text
+20–60 minutes
+```
+
+depending on CPU, angr version, and compiler output.
+
+5. Monitor progress using:
+
+```bash
+htop
+```
+
+If Python is actively consuming CPU, CFG recovery is still running.
+
+---
+
+# 10. Project Structure
 
 ```text
 project/
 ├── prepare_gmn_data.py
+├── prepare_ffmpeg_cfg.py
+├── requirements.txt
+├── requirements-ffmpeg.txt
 ├── README.md
 │
 ├── data/
 │   ├── ged/
-│   │   ├── n20_p02/
-│   │   ├── n20_p05/
-│   │   ├── n50_p02/
-│   │   └── n50_p05/
-│   │
-│   └── coil_del/
+│   ├── coil_del/
+│   └── ffmpeg/
 │
 ├── src/
-│   ├── model/
 │   ├── datasets/
+│   ├── model/
 │   ├── training/
 │   └── evaluation/
 │
 ├── experiments/
 │   ├── ged_baseline/
 │   ├── coil_baseline/
+│   ├── ffmpeg_baseline/
 │   └── extensions/
 │
 └── results/
@@ -372,4 +641,4 @@ project/
     └── figures/
 ```
 
-This keeps dataset preparation, baseline implementation, extensions, and results separate.
+This structure keeps dataset preparation, baseline reproduction, extensions, and evaluation cleanly separated.

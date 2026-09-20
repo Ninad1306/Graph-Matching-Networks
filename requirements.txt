@@ -11,5 +11,8 @@ torchaudio>=2.4
 # Graph learning / COIL-DEL
 torch-geometric>=2.6
 
+# FFmpeg CFG extraction
+angr>=9.2
+
 # Utilities
 tqdm>=4.66
